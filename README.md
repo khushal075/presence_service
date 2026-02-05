@@ -24,7 +24,7 @@ A high-performance, real-time presence service built with **FastAPI**, **WebSock
 ### 2. Setup
 ```bash
 # Clone the repository
-git clone <your-repo-url>
+git clone git@github.com:khushal075/presence_service.git
 cd presence_service
 
 # Create virtual environment
