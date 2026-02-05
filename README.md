@@ -26,10 +26,12 @@ A high-performance, real-time presence service built with **FastAPI**, **WebSock
 # Clone the repository
 git clone git@github.com:khushal075/presence_service.git
 cd presence_service
+```
 
-# Create virtual environment
-python -m venv .venv
-source .venv/bin/activate
+### 3. Installation
+```bash
+# Install dependencies and create venv automatically
+poetry install
 
-# Install dependencies
-pip install fastapi uvicorn redis pydantic pydantic-settings    
+# Enter the virtual environment
+poetry shell
