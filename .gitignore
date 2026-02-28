@@ -1,0 +1,11 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.python-version
+
+# IDE
+.idea/
+
+
