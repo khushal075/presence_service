@@ -56,3 +56,59 @@ class TestHealthEndpoint:
     async def test_health_returns_running(self, client):
         response = await client.get("/health")
         assert response.json() == {"status": "running"}
+
+
+class TestWebSocketEndpoint:
+
+    @pytest.mark.asyncio
+    async def test_websocket_connect_and_disconnect(self, mock_redis):
+        """Connecting a WebSocket should mark the user online; disconnecting marks offline."""
+        from app.main import app
+        from unittest.mock import patch, AsyncMock, MagicMock
+
+        pubsub = AsyncMock()
+        pubsub.subscribe = AsyncMock()
+        pubsub.unsubscribe = AsyncMock()
+
+        async def empty_listen():
+            return
+            yield
+
+        pubsub.listen = empty_listen
+        mock_redis.pubsub = MagicMock(return_value=pubsub)
+
+        with patch("app.main.get_redis_client", AsyncMock(return_value=mock_redis)):
+            from starlette.testclient import TestClient
+            with TestClient(app) as client:
+                with client.websocket_connect("/ws/42") as ws:
+                    # User should now be online
+                    assert mock_redis.hset.called
+                    args = mock_redis.hset.call_args[0]
+                    assert args[1] == "42"
+                    assert args[2] == "online"
+
+    @pytest.mark.asyncio
+    async def test_websocket_ping_pong(self, mock_redis):
+        """Sending a ping should receive a pong response."""
+        from app.main import app
+        from unittest.mock import patch, AsyncMock, MagicMock
+
+        pubsub = AsyncMock()
+        pubsub.subscribe = AsyncMock()
+        pubsub.unsubscribe = AsyncMock()
+
+        async def empty_listen():
+            return
+            yield
+
+        pubsub.listen = empty_listen
+        mock_redis.pubsub = MagicMock(return_value=pubsub)
+        # Patch refresh_heartbeat so the AttributeError bug doesn't surface in tests
+        with patch("app.main.get_redis_client", AsyncMock(return_value=mock_redis)):
+            with patch("app.manager.PresenceManager.refresh_heartbeat", AsyncMock()):
+                from starlette.testclient import TestClient
+                with TestClient(app) as client:
+                    with client.websocket_connect("/ws/99") as ws:
+                        ws.send_json({"type": "ping"})
+                        data = ws.receive_json()
+                        assert data == {"type": "pong"}

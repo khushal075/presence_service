@@ -2,6 +2,7 @@
 Unit tests for PresenceRepository, PresenceBroadcaster, and PresenceManager.
 All external I/O is mocked — no real Redis required.
 """
+import asyncio
 import json
 import pytest
 import pytest_asyncio
@@ -202,3 +203,136 @@ class TestPresenceManagerFanOut:
         # Should not raise; ws2 should still receive the message
         await manager._notify_local_subscribers("99", "online")
         ws2.send_text.assert_called_once()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PresenceManager — global listener
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestPresenceManagerGlobalListener:
+
+    def _make_websocket(self):
+        ws = AsyncMock()
+        ws.send_text = AsyncMock()
+        ws.accept = AsyncMock()
+        return ws
+
+    @pytest.mark.asyncio
+    async def test_global_listener_routes_message_to_local_subscribers(self, manager):
+        """A presence_update message from Redis should fan out to local connections."""
+        import json
+        import asyncio
+
+        ws = self._make_websocket()
+        await manager.handle_connection("99", ws)
+
+        # Build a fake pubsub that yields one message then stops
+        async def fake_listen():
+            yield {"type": "message", "data": json.dumps({"user_id": "5", "status": "online"})}
+
+        pubsub = AsyncMock()
+        pubsub.subscribe = AsyncMock()
+        pubsub.unsubscribe = AsyncMock()
+        pubsub.listen = fake_listen
+        manager.broadcaster.get_pubsub = MagicMock(return_value=pubsub)
+
+        await manager.start_global_listener()
+
+        ws.send_text.assert_called_once()
+        payload = json.loads(ws.send_text.call_args[0][0])
+        assert payload["user_id"] == "5"
+        assert payload["status"] == "online"
+        assert payload["type"] == "presence_change"
+
+    @pytest.mark.asyncio
+    async def test_global_listener_skips_non_message_types(self, manager):
+        """subscribe/psubscribe confirmation messages should be ignored."""
+        import asyncio
+
+        async def fake_listen():
+            yield {"type": "subscribe", "data": 1}
+
+        pubsub = AsyncMock()
+        pubsub.subscribe = AsyncMock()
+        pubsub.unsubscribe = AsyncMock()
+        pubsub.listen = fake_listen
+        manager.broadcaster.get_pubsub = MagicMock(return_value=pubsub)
+
+        # Should complete without error and without sending anything
+        await manager.start_global_listener()
+
+    @pytest.mark.asyncio
+    async def test_global_listener_handles_exception_gracefully(self, manager):
+        """An error mid-stream should not crash the process."""
+        async def fake_listen():
+            yield {"type": "message", "data": "not valid json {{{}"}
+
+        pubsub = AsyncMock()
+        pubsub.subscribe = AsyncMock()
+        pubsub.unsubscribe = AsyncMock()
+        pubsub.listen = fake_listen
+        manager.broadcaster.get_pubsub = MagicMock(return_value=pubsub)
+
+        # Should not raise
+        await manager.start_global_listener()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PresenceManager — heartbeat & cleanup
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestPresenceManagerHeartbeat:
+
+    @pytest.mark.asyncio
+    async def test_refresh_heartbeat_sets_ttl_key(self, manager, mock_redis):
+        """refresh_heartbeat should write a presence:heartbeat:{user_id} key with TTL."""
+        # Fix the known bug: patch self.redis onto the manager
+        manager.redis = mock_redis
+        await manager.refresh_heartbeat("42")
+        mock_redis.set.assert_called_once_with("presence:heartbeat:42", "alive", ex=60)
+
+    @pytest.mark.asyncio
+    async def test_refresh_heartbeat_ensures_user_online(self, manager, mock_redis):
+        manager.redis = mock_redis
+        await manager.refresh_heartbeat("42")
+        status = await manager.repository.get_status("42")
+        assert status == "online"
+
+    @pytest.mark.asyncio
+    async def test_cleanup_monitor_removes_expired_users(self, manager, mock_redis):
+        """Users with no heartbeat key should be marked offline."""
+        import asyncio
+
+        # Pre-populate two users in the hash
+        await manager.repository.set_status("alive_user", UserStatus.ONLINE)
+        await manager.repository.set_status("dead_user", UserStatus.ONLINE)
+
+        # alive_user has a heartbeat key, dead_user does not
+        async def fake_exists(key):
+            return 1 if "alive_user" in key else 0
+
+        mock_redis.exists.side_effect = fake_exists
+        manager.redis = mock_redis
+
+        # Patch asyncio.sleep to run only one iteration then cancel
+        call_count = 0
+
+        async def fake_sleep(_):
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 1:
+                raise asyncio.CancelledError()
+
+        with patch("app.manager.asyncio.sleep", fake_sleep):
+            try:
+                await manager.start_cleanup_monitor()
+            except asyncio.CancelledError:
+                pass
+
+        # dead_user should have been removed
+        dead_status = await manager.repository.get_status("dead_user")
+        assert dead_status is None
+
+        # alive_user should still be present
+        alive_status = await manager.repository.get_status("alive_user")
+        assert alive_status == "online"
