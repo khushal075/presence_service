@@ -103,7 +103,7 @@ class PresenceManager:
         await self.redis.set(heartbeat_key, 'alive', ex=60)
 
         # Ensure they are marked as online in the main hash
-        await self.repository.set_stauts(user_id, UserStatus.ONLINE)
+        await self.repository.set_status(user_id, UserStatus.ONLINE)
 
 
     async def start_cleanup_monitor(self):
@@ -112,12 +112,12 @@ class PresenceManager:
         heartbeat and marks them offline.
         """
         while True:
-            all_users = await self.repository.get_all_stauts()
+            all_users = await self.repository.get_all_status()
             for user_id in all_users:
                 heartbeat_exists = await self.redis.exists(f"presence:heartbeat:{user_id}")
                 if not heartbeat_exists:
                     # User timeout
-                    await self.repository.remove_stauts(user_id)
+                    await self.repository.remove_status(user_id)
                     await self.broadcaster.publish(PresenceUpdate(user_id=user_id, status=UserStatus.OFFLINE))
 
             # Checks every 30 seconds

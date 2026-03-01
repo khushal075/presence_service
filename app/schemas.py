@@ -10,7 +10,7 @@ class UserStatus(str, Enum):
 
 
 class PresenceUpdate(BaseModel):
-    user_id: int
+    user_id: str
     status: UserStatus
     metadata: dict = {}
 
