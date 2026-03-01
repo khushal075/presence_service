@@ -159,10 +159,10 @@ Set these in a `.env` file or pass via Docker environment.
 
 ```bash
 # WebSocket integration tests
-python tests/test_socket.py
+python tests/test_integraation.py
 
 # Load test
-python tests/load_test.py
+python tests/test_unit.py
 ```
 
 ---
