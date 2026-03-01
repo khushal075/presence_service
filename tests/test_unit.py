@@ -63,7 +63,7 @@ class TestPresenceBroadcaster:
 
     @pytest.mark.asyncio
     async def test_publish_serializes_update(self, broadcaster, mock_redis):
-        update = PresenceUpdate(user_id=1, status=UserStatus.ONLINE)
+        update = PresenceUpdate(user_id="1", status=UserStatus.ONLINE)
         await broadcaster.publish(update)
 
         mock_redis.publish.assert_called_once()
@@ -71,7 +71,7 @@ class TestPresenceBroadcaster:
 
         assert channel == "presence_update"
         data = json.loads(payload)
-        assert data["user_id"] == 1
+        assert data["user_id"] == "1"
         assert data["status"] == "online"
 
     def test_get_pubsub_returns_pubsub_object(self, broadcaster, mock_redis):
