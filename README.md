@@ -170,6 +170,53 @@ Pushed to all connected clients whenever any user's status changes:
 
 ---
 
+## 📊 Scalability
+
+- Horizontally scalable across multiple stateless nodes
+- Designed for high-frequency heartbeat workloads
+- Includes load testing script (`tests/load_test.py`) for validation
+
+The system can be scaled by:
+- Adding more application nodes
+- Using Redis Cluster for distributed state
+
+---
+
+## 🧠 Design Decisions & Trade-offs
+
+### Why Redis Hash for presence?
+- O(1) read/write for user state
+- Simple global view of online users
+
+### Why Pub/Sub for propagation?
+- Decouples nodes (no direct communication)
+- Enables horizontal scalability
+
+### Trade-offs:
+- Pub/Sub is not durable → possible message loss
+- Eventual consistency → short-lived stale states
+- Broadcast fan-out → inefficient at scale (planned fix)
+
+👉 System prioritizes low latency and availability over strict consistency
+
+---
+
+## ⚠️ Failure Handling
+
+### Node Failure
+- Stateless nodes → traffic rerouted via load balancer
+- No data loss (state stored in Redis)
+
+### Redis Failure
+- Can be mitigated via replication / Redis Cluster
+- Temporary degradation possible
+
+### Network Partition
+- Heartbeat TTL ensures eventual correction
+
+---
+
+
 ## 🚀 Getting Started
 
 ### Run with Docker Compose (Multi-Node demo)
