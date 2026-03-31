@@ -73,9 +73,9 @@ Client A ──WS──▶ Server 1 ──publish──▶ Redis Pub/Sub ──�
 | `app/dependencies.py` | FastAPI dependency injection for `PresenceManager` |
 | `app/utils/redis_client.py` | Async Redis connection factory |
 
-### Data Flows
+### 🔄 Data Flows
 
-**User connects:**
+**✅ User connects:**
 ```
 WS /ws/{user_id}
   → PresenceManager.handle_connection()
@@ -84,7 +84,7 @@ WS /ws/{user_id}
     → local_connections[user_id].add(websocket)         # track in-process
 ```
 
-**Cross-node sync (background task started at boot):**
+**🔁 Cross-node sync (background task started at boot):**
 ```
 PresenceManager.start_global_listener()
   → subscribes to Redis "presence_update" channel
@@ -93,7 +93,7 @@ PresenceManager.start_global_listener()
           → asyncio.gather() — concurrent fan-out to every local WebSocket
 ```
 
-**User disconnects:**
+**❌ User disconnects:**
 ```
 WebSocketDisconnect
   → PresenceManager.handle_disconnect()
@@ -103,7 +103,7 @@ WebSocketDisconnect
         → PresenceBroadcaster.publish(PresenceUpdate OFFLINE)
 ```
 
-**Heartbeat & stale session cleanup:**
+**⏱️ Heartbeat & stale session cleanup:**
 ```
 Client sends {"type": "ping"} every ~20s
   → PresenceManager.refresh_heartbeat()
