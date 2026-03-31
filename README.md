@@ -263,7 +263,7 @@ push / PR
 ├── pyproject.toml
 └── README.md
 ```
-
+---
 
 ## 🧪 Testing
 
@@ -294,8 +294,6 @@ python tests/load_test.py
 | `tests/load_test.py` | Manual load testing (excluded from CI) |
 
 CI enforces a **minimum 75% coverage threshold**. The full HTML report is uploaded as a build artifact on every run.
-
----
 
 ---
 
