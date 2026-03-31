@@ -10,20 +10,51 @@ A distributed, real-time presence engine. Tracks user online/offline status acro
 
 ---
 
-## How It Works
+
+## 🎯 Problem Statement
+
+Tracking presence at scale is non-trivial due to:
+
+* High-frequency updates (heartbeats every ~20s)
+* Cross-node synchronization
+* Real-time fan-out to connected clients
+* Handling stale sessions and failures
+
+This system solves:
+
+* **Global presence consistency across nodes**
+* **Low-latency propagation of state changes**
+* **Efficient cleanup of inactive users**
+* **Fault-tolerant presence tracking**
+
+---
+
+## 🏗️ High-Level Architecture
 
 ```
 Client A ──WS──▶ Server 1 ──publish──▶ Redis Pub/Sub ──▶ Server 2 ──WS──▶ Client B
                      │                                          │
-                     └───────── global_presence (Redis Hash) ──┘
+                     └───────── global_presence (Redis Hash) ───┘
 ```
+---
 
-Every server node shares two Redis primitives:
+### Core Idea:
 
-- **`global_presence` Hash** — the source of truth for who is online right now.
-- **`presence_update` Pub/Sub channel** — the event bus that notifies every node when any user's status changes.
+* Redis acts as:
 
-When a user connects on Server 1, Server 2's locally connected clients learn about it in milliseconds — without the two servers ever talking to each other directly.
+  * **Source of truth (Hash)**
+  * **Event bus (Pub/Sub)**
+* Servers remain **stateless and horizontally scalable**
+---
+
+## ⚙️ Core Components
+
+| Component                         | Responsibility                           |
+| --------------------------------- | ---------------------------------------- |
+| Presence Service                  | Connection lifecycle, heartbeat, fan-out |
+| Redis Hash (`global_presence`)    | Source of truth for active users         |
+| Redis Pub/Sub (`presence_update`) | Cross-node event propagation             |
+| WebSockets                        | Real-time client updates                 |
 
 ---
 
@@ -94,19 +125,19 @@ On startup (`lifespan`), two `asyncio` background tasks are created:
 | `start_global_listener` | Subscribes to Redis channel, routes updates to local WebSocket clients |
 | `start_cleanup_monitor` | Polls every 30s to evict users whose heartbeat has expired |
 
-Both tasks are cancelled cleanly on shutdown, followed by closing the Redis connection.
+Both tasks are canceled cleanly on shutdown, followed by closing the Redis connection.
 
 ---
 
-## WebSocket Protocol
+## 🔌 WebSocket Protocol
 
-### Connect
+### 1. Connect
 ```
 ws://localhost:8001/ws/{user_id}
 ```
 Connecting marks the user `online` in Redis and broadcasts the change cluster-wide.
 
-### Heartbeat — Ping / Pong
+### 2. Heartbeat — Ping / Pong
 The client must send a ping every ~20 seconds. If no ping arrives within 60 seconds, the cleanup monitor will mark the user offline.
 
 ```json
@@ -117,7 +148,7 @@ The client must send a ping every ~20 seconds. If no ping arrives within 60 seco
 { "type": "pong" }
 ```
 
-### Presence Events — Server → Client
+### 3. Presence Events — Server → Client
 Pushed to all connected clients whenever any user's status changes:
 
 ```json
@@ -139,9 +170,9 @@ Pushed to all connected clients whenever any user's status changes:
 
 ---
 
-## Getting Started
+## 🚀 Getting Started
 
-### Run with Docker Compose
+### Run with Docker Compose (Multi-Node demo)
 
 ```bash
 docker-compose up --build
@@ -182,35 +213,6 @@ Set in a `.env` file or via Docker `environment:`.
 
 ---
 
-## Testing
-
-```bash
-# Run all tests with coverage
-poetry run pytest tests/ --ignore=tests/load_test.py --cov=app --cov-report=term-missing
-
-# Run only unit tests
-poetry run pytest tests/test_unit.py -v
-
-# Run only integration tests
-poetry run pytest tests/test_integration.py -v
-
-# Load test (manual, requires a running server)
-python tests/load_test.py
-```
-
-### Test Structure
-
-| File | What it covers |
-|---|---|
-| `tests/conftest.py` | Shared fixtures: mock Redis, repository, broadcaster, manager, async HTTP client |
-| `tests/test_unit.py` | `PresenceRepository`, `PresenceBroadcaster`, `PresenceManager` (connect, disconnect, fan-out, global listener, heartbeat, cleanup monitor) |
-| `tests/test_integration.py` | HTTP `/health` endpoint and WebSocket connect/ping-pong |
-| `tests/test_socket.py` | WebSocket end-to-end tests |
-| `tests/load_test.py` | Manual load testing (excluded from CI) |
-
-CI enforces a **minimum 75% coverage threshold**. The full HTML report is uploaded as a build artifact on every run.
-
----
 
 ## CI / CD
 
@@ -262,17 +264,51 @@ push / PR
 └── README.md
 ```
 
+
+## 🧪 Testing
+
+CI enforces a minimum 75% coverage threshold via GitHub Actions.
+
+```bash
+# Run all tests with coverage
+poetry run pytest tests/ --ignore=tests/load_test.py --cov=app --cov-report=term-missing
+
+# Run only unit tests
+poetry run pytest tests/test_unit.py -v
+
+# Run only integration tests
+poetry run pytest tests/test_integration.py -v
+
+# Load test (manual, requires a running server)
+python tests/load_test.py
+```
+
+### Test Structure
+
+| File | What it covers |
+|---|---|
+| `tests/conftest.py` | Shared fixtures: mock Redis, repository, broadcaster, manager, async HTTP client |
+| `tests/test_unit.py` | `PresenceRepository`, `PresenceBroadcaster`, `PresenceManager` (connect, disconnect, fan-out, global listener, heartbeat, cleanup monitor) |
+| `tests/test_integration.py` | HTTP `/health` endpoint and WebSocket connect/ping-pong |
+| `tests/test_socket.py` | WebSocket end-to-end tests |
+| `tests/load_test.py` | Manual load testing (excluded from CI) |
+
+CI enforces a **minimum 75% coverage threshold**. The full HTML report is uploaded as a build artifact on every run.
+
 ---
 
-## Known Issues
+---
+
+## ⚠️ Known Limitations
 
 One known design limitation remains:
 
-- **Fan-out has no subscription filter** — `_notify_local_subscribers()` currently pushes every presence event to every connected client on the node, regardless of whether they care about that user. A subscription registry (`dict[watched_user_id, set[WebSocket]]`) is needed for targeted delivery.
+- **Broadcast Fan-out:** Currently, every presence update is pushed to every connected client on a node.
+- **The Fix:** A subscription registry (dict[watched_user_id, set[WebSocket]]) is needed for targeted delivery to specific "friends" or "followers."
 
 ---
 
-## Tech Stack
+## 🛠️ Tech Stack
 
 - **[FastAPI](https://fastapi.tiangolo.com/)** — async web framework
 - **[Redis](https://redis.io/)** — presence state (Hash) + cross-node event bus (Pub/Sub)
